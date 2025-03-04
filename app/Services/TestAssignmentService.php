@@ -1,0 +1,140 @@
+<?php
+
+namespace App\Services;
+
+use App\Models\Candidate;
+use App\Models\Staff;
+use App\Models\TestSession;
+use App\Models\TestGroup;
+use App\Models\PresentielTest;
+use App\Models\Notification;
+use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
+
+class TestAssignmentService
+{
+    /**
+     * Assign candidates to tests and staff members.
+     *
+     * @param Collection $candidates
+     * @return array
+     */
+    public function assignCandidatesToTests(Collection $candidates)
+    {
+        $results = [
+            'assigned' => [],
+            'not_assigned' => [],
+            'errors' => []
+        ];
+        
+        // Wrappe tout dans une transaction
+        DB::beginTransaction();
+        
+        try {
+            // 1. Assigner les candidats aux tests CME (en groupes)
+            $this->assignCMETests($candidates, $results);
+            
+            // 2. Assigner les tests techniques
+            $this->assignTechnicalTests($candidates, $results);
+            
+            // 3. Assigner les tests administratifs
+            $this->assignAdministrativeTests($candidates, $results);
+            
+            DB::commit();
+        } catch (\Exception $e) {
+            DB::rollBack();
+            $results['errors'][] = $e->getMessage();
+        }
+        
+        return $results;
+    }
+    
+    /**
+     * Assign CME tests in groups.
+     */
+    private function assignCMETests(Collection $candidates, array &$results)
+    {
+        // Trouver ou créer des sessions de test
+        $sessions = $this->findOrCreateTestSessions();
+        
+        // Trouver les staffs CME disponibles
+        $cmeStaff = Staff::whereHas('user.roles', function ($query) {
+            $query->where('name', 'CME');
+        })->get();
+        
+        // S'assurer qu'il y a suffisamment de staff CME
+        if ($cmeStaff->count() < 1) {
+            $results['errors'][] = "Pas assez de staff CME disponible";
+            return;
+        }
+        
+        // Assigner les candidats aux groupes
+        foreach ($candidates as $candidate) {
+            // Vérifier si le candidat est déjà assigné à un test CME
+            $existingTest = PresentielTest::where('candidate_id', $candidate->id)
+                ->where('test_type', 'cme')
+                ->first();
+                
+            if ($existingTest) {
+                continue; // Candidat déjà assigné
+            }
+            
+            // Trouver un groupe non complet
+            $group = null;
+            foreach ($sessions as $session) {
+                $availableGroups = $session->groups()
+                    ->get()
+                    ->filter(function ($g) {
+                        return !$g->isAtCapacity();
+                    });
+                
+                if ($availableGroups->count() > 0) {
+                    $group = $availableGroups->first();
+                    break;
+                } else if (!$session->isAtCapacity()) {
+                    // Créer un nouveau groupe si la session n'est pas complète
+                    $group = TestGroup::create([
+                        'name' => 'Groupe ' . ($session->groups()->count() + 1),
+                        'session_id' => $session->id,
+                        'capacity' => 4
+                    ]);
+                    break;
+                }
+            }
+            
+            if (!$group) {
+                $results['not_assigned'][] = [
+                    'candidate' => $candidate,
+                    'reason' => 'Pas de groupe disponible pour le test CME'
+                ];
+                continue;
+            }
+            
+            // Assigner le staff
+            $staffMember = $cmeStaff->random();
+            
+            // Créer le test présentiel
+            $test = PresentielTest::create([
+                'candidate_id' => $candidate->id,
+                'staff_id' => $staffMember->id,
+                'group_id' => $group->id,
+                'date' => $group->session->date,
+                'location' => $group->session->location,
+                'test_type' => 'cme',
+                'status' => 'scheduled'
+            ]);
+            
+            // Envoyer une notification
+            $this->sendTestNotification($candidate, $staffMember, $test);
+            
+            $results['assigned'][] = [
+                'candidate' => $candidate,
+                'test' => $test,
+                'type' => 'cme'
+            ];
+        }
+    }
+    
+    /**
+     * Assign technical tests.
+     */
