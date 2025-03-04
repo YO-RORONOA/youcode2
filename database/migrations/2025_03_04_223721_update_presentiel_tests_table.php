@@ -11,7 +11,10 @@ return new class extends Migration
      */
     public function up(): void
     {
-        //
+        Schema::table('presentiel_tests', function (Blueprint $table) {
+            $table->foreignId('group_id')->nullable()->after('staff_id')->constrained('test_groups')->nullOnDelete();
+            $table->enum('test_type', ['cme', 'technical', 'administrative'])->after('location');
+        });
     }
 
     /**

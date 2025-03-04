@@ -13,6 +13,9 @@ return new class extends Migration
     {
         Schema::create('test_groups', function (Blueprint $table) {
             $table->id();
+            $table->string('name');
+            $table->foreignId('session_id')->constrained('test_sessions')->onDelete('cascade');
+            $table->integer('capacity')->default(4);
             $table->timestamps();
         });
     }

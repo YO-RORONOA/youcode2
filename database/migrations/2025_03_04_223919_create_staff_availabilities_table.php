@@ -13,6 +13,10 @@ return new class extends Migration
     {
         Schema::create('staff_availabilities', function (Blueprint $table) {
             $table->id();
+            $table->foreignId('staff_id')->constrained()->onDelete('cascade');
+            $table->date('date');
+            $table->enum('time_slot', ['morning', 'afternoon', 'full_day']);
+            $table->boolean('is_available')->default(true);
             $table->timestamps();
         });
     }

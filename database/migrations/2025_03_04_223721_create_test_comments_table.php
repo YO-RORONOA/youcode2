@@ -13,6 +13,10 @@ return new class extends Migration
     {
         Schema::create('test_comments', function (Blueprint $table) {
             $table->id();
+            $table->foreignId('presentiel_test_id')->constrained()->onDelete('cascade');
+            $table->foreignId('staff_id')->constrained()->onDelete('cascade');
+            $table->text('comment');
+            $table->enum('rating', ['pass', 'fail', 'pending'])->default('pending');
             $table->timestamps();
         });
     }

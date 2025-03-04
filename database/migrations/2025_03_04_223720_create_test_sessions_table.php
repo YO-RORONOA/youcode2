@@ -13,6 +13,10 @@ return new class extends Migration
     {
         Schema::create('test_sessions', function (Blueprint $table) {
             $table->id();
+            $table->date('date');
+            $table->enum('time_slot', ['morning', 'afternoon']);
+            $table->string('location');
+            $table->enum('status', ['scheduled', 'completed', 'cancelled'])->default('scheduled');
             $table->timestamps();
         });
     }
