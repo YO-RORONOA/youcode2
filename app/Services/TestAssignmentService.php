@@ -138,3 +138,69 @@ class TestAssignmentService
     /**
      * Assign technical tests.
      */
+    private function assignTechnicalTests(Collection $candidates, array &$results)
+    {
+        // Trouver les staffs techniques disponibles
+        $technicalStaff = Staff::whereHas('user.roles', function ($query) {
+            $query->where('name', 'Coach');
+        })->get();
+        
+        // S'assurer qu'il y a suffisamment de staff technique
+        if ($technicalStaff->count() < 1) {
+            $results['errors'][] = "Pas assez de staff technique disponible";
+            return;
+        }
+        
+        foreach ($candidates as $candidate) {
+            // Vérifier si le candidat est déjà assigné à un test technique
+            $existingTest = PresentielTest::where('candidate_id', $candidate->id)
+                ->where('test_type', 'technical')
+                ->first();
+                
+            if ($existingTest) {
+                continue; // Candidat déjà assigné
+            }
+            
+            // Trouver le staff avec le moins de tests assignés
+            $staffMember = $technicalStaff->sortBy(function ($staff) {
+                return $staff->presentielTests()
+                    ->where('test_type', 'technical')
+                    ->where('date', '>=', now())
+                    ->count();
+            })->first();
+            
+            // Trouver une plage horaire disponible
+            $dateTime = $this->findAvailableTimeSlot($staffMember, 20); // 20 minutes pour un test technique
+            
+            if (!$dateTime) {
+                $results['not_assigned'][] = [
+                    'candidate' => $candidate,
+                    'reason' => 'Pas de créneau disponible pour le test technique'
+                ];
+                continue;
+            }
+            
+            // Créer le test présentiel
+            $test = PresentielTest::create([
+                'candidate_id' => $candidate->id,
+                'staff_id' => $staffMember->id,
+                'date' => $dateTime,
+                'location' => 'Salle Technique',
+                'test_type' => 'technical',
+                'status' => 'scheduled'
+            ]);
+            
+            // Envoyer une notification
+            $this->sendTestNotification($candidate, $staffMember, $test);
+            
+            $results['assigned'][] = [
+                'candidate' => $candidate,
+                'test' => $test,
+                'type' => 'technical'
+            ];
+        }
+    }
+    
+    /**
+     * Assign administrative tests.
+     */
