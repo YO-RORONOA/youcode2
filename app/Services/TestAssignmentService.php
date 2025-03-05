@@ -266,4 +266,57 @@ class TestAssignmentService
             ];
         }
     }
- 
+    
+    /**
+     * Find or create test sessions for group tests (CME).
+     */
+    private function findOrCreateTestSessions()
+    {
+        $startDate = now()->addDays(1);
+        $endDate = now()->addDays(14);
+        
+        // Chercher des sessions existantes
+        $existingSessions = TestSession::whereBetween('date', [$startDate, $endDate])
+            ->where('status', 'scheduled')
+            ->get();
+            
+        if ($existingSessions->count() > 0) {
+            return $existingSessions;
+        }
+        
+        // Créer de nouvelles sessions
+        $sessions = collect();
+        
+        // Créer 3 jours de sessions (par exemple)
+        for ($i = 0; $i < 3; $i++) {
+            $date = $startDate->copy()->addDays($i);
+            
+            // Ne pas planifier pendant les week-ends
+            if ($date->isWeekend()) {
+                continue;
+            }
+            
+            // Session du matin
+            $morningSession = TestSession::create([
+                'date' => $date,
+                'time_slot' => 'morning',
+                'location' => 'Salle de conférence',
+                'status' => 'scheduled'
+            ]);
+            
+            $sessions->push($morningSession);
+            
+            // Session de l'après-midi
+            $afternoonSession = TestSession::create([
+                'date' => $date,
+                'time_slot' => 'afternoon',
+                'location' => 'Salle de conférence',
+                'status' => 'scheduled'
+            ]);
+            
+            $sessions->push($afternoonSession);
+        }
+        
+        return $sessions;
+    }
+    
