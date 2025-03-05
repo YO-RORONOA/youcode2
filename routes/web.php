@@ -1,10 +1,15 @@
 <?php
 // routes/web.php
+
+use App\Http\Controllers\Admin\TestAssignmentController;
+use App\Http\Controllers\Admin\TestGroupController;
+use App\Http\Controllers\Admin\TestSessionController;
 use App\Http\Controllers\HomeController;
 use App\Http\Controllers\AdminController;
 use App\Http\Controllers\CandidateController;
 use App\Http\Controllers\StaffController;
 use App\Http\Controllers\QuestionController;
+use App\Http\Controllers\Staff\PresentialTestController;
 use Illuminate\Contracts\View\View;
 use Illuminate\Support\Facades\Route;
 
@@ -69,9 +74,71 @@ Route::middleware(['auth', 'role:Admin'])->prefix('admin')->name('admin.')->grou
     Route::delete('/questions/{id}', [QuestionController::class, 'destroy'])->name('questions.destroy');
     
     // Gestion des tests présentiels
-
+    Route::get('/tests', [AdminController::class, 'presentielTests'])->name('tests.index');
+    Route::get('/tests/schedule', [AdminController::class, 'scheduleTest'])->name('tests.schedule');
+    Route::post('/tests', [AdminController::class, 'storeTest'])->name('tests.store');
     
     // Gestion des utilisateurs
     Route::get('/users', [AdminController::class, 'users'])->name('users');
 });
 
+// Routes pour le staff (CME, Coach)
+Route::middleware(['auth', 'role:CME,Coach'])->prefix('staff')->name('staff.')->group(function () {
+    Route::get('/dashboard', [StaffController::class, 'dashboard'])->name('dashboard');
+    
+    // Gestion des tests
+    Route::get('/tests', [StaffController::class, 'tests'])->name('tests.index');
+    Route::get('/tests/{id}', [StaffController::class, 'viewTest'])->name('tests.view');
+    Route::put('/tests/{id}/status', [StaffController::class, 'updateTestStatus'])->name('tests.update');
+    
+    // Gestion des disponibilités
+    Route::get('/availabilities', [StaffController::class, 'availabilities'])->name('availabilities');
+    Route::post('/availabilities', [StaffController::class, 'storeAvailability'])->name('availabilities.store');
+    Route::delete('/availabilities/{id}', [StaffController::class, 'deleteAvailability'])->name('availabilities.delete');
+});
+
+
+// Routes pour l'administration des tests
+Route::middleware(['auth', 'role:Admin'])->prefix('admin')->name('admin.')->group(function () {
+    // ... routes existantes ...
+    
+    // Routes pour les sessions de test
+    Route::prefix('tests')->name('tests.')->group(function () {
+        // Sessions
+        Route::resource('sessions', TestSessionController::class);
+        
+        // Groupes (imbriqués avec sessions)
+        Route::prefix('sessions/{session}/groups')->name('groups.')->group(function () {
+            Route::get('/', [TestGroupController::class, 'index'])->name('index');
+            Route::get('/create', [TestGroupController::class, 'create'])->name('create');
+            Route::post('/', [TestGroupController::class, 'store'])->name('store');
+            Route::get('/{group}', [TestGroupController::class, 'show'])->name('show');
+            Route::get('/{group}/edit', [TestGroupController::class, 'edit'])->name('edit');
+            Route::put('/{group}', [TestGroupController::class, 'update'])->name('update');
+            Route::delete('/{group}', [TestGroupController::class, 'destroy'])->name('destroy');
+            Route::post('/{group}/candidates', [TestGroupController::class, 'addCandidate'])->name('add-candidate');
+            Route::delete('/{group}/candidates/{test}', [TestGroupController::class, 'removeCandidate'])->name('remove-candidate');
+        });
+        
+        // Assignation automatique
+        Route::get('/assignment', [TestAssignmentController::class, 'index'])->name('assignment.index');
+        Route::post('/assignment/run', [TestAssignmentController::class, 'runAutoAssignment'])->name('assignment.run');
+        Route::get('/assignment/results', [TestAssignmentController::class, 'showResults'])->name('assignment.results');
+        Route::get('/assignment/test/{id}', [TestAssignmentController::class, 'showTest'])->name('assignment.test');
+        Route::put('/assignment/test/{id}', [TestAssignmentController::class, 'updateTest'])->name('assignment.test.update');
+    });
+});
+
+// Routes pour le staff (CME, Coach, Administratif)
+Route::middleware(['auth', 'role:CME,Coach,administrative'])->prefix('staff')->name('staff.')->group(function () {
+    // ... routes existantes ...
+    
+    // Tests présentiels
+    Route::get('/tests', [PresentialTestController::class, 'index'])->name('tests.index');
+    Route::get('/tests/{id}', [PresentialTestController::class, 'show'])->name('tests.show');
+    Route::post('/tests/{id}/comment', [PresentialTestController::class, 'addComment'])->name('tests.comment');
+    
+    // Gestion des disponibilités
+    Route::get('/availability', [PresentialTestController::class, 'availability'])->name('tests.availability');
+    Route::post('/availability', [PresentialTestController::class, 'storeAvailability'])->name('tests.availability.store');
+});
