@@ -69,25 +69,9 @@ Route::middleware(['auth', 'role:Admin'])->prefix('admin')->name('admin.')->grou
     Route::delete('/questions/{id}', [QuestionController::class, 'destroy'])->name('questions.destroy');
     
     // Gestion des tests présentiels
-    Route::get('/tests', [AdminController::class, 'presentielTests'])->name('tests.index');
-    Route::get('/tests/schedule', [AdminController::class, 'scheduleTest'])->name('tests.schedule');
-    Route::post('/tests', [AdminController::class, 'storeTest'])->name('tests.store');
+
     
     // Gestion des utilisateurs
     Route::get('/users', [AdminController::class, 'users'])->name('users');
 });
 
-// Routes pour le staff (CME, Coach)
-Route::middleware(['auth', 'role:CME,Coach'])->prefix('staff')->name('staff.')->group(function () {
-    Route::get('/dashboard', [StaffController::class, 'dashboard'])->name('dashboard');
-    
-    // Gestion des tests
-    Route::get('/tests', [StaffController::class, 'tests'])->name('tests.index');
-    Route::get('/tests/{id}', [StaffController::class, 'viewTest'])->name('tests.view');
-    Route::put('/tests/{id}/status', [StaffController::class, 'updateTestStatus'])->name('tests.update');
-    
-    // Gestion des disponibilités
-    Route::get('/availabilities', [StaffController::class, 'availabilities'])->name('availabilities');
-    Route::post('/availabilities', [StaffController::class, 'storeAvailability'])->name('availabilities.store');
-    Route::delete('/availabilities/{id}', [StaffController::class, 'deleteAvailability'])->name('availabilities.delete');
-});

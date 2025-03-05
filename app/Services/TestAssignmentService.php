@@ -204,3 +204,66 @@ class TestAssignmentService
     /**
      * Assign administrative tests.
      */
+    private function assignAdministrativeTests(Collection $candidates, array &$results)
+    {
+        // Trouver les staffs administratifs disponibles
+        $adminStaff = Staff::whereHas('user.roles', function ($query) {
+            $query->where('name', 'administrative');
+        })->get();
+        
+        // S'assurer qu'il y a suffisamment de staff administratif
+        if ($adminStaff->count() < 1) {
+            $results['errors'][] = "Pas assez de staff administratif disponible";
+            return;
+        }
+        
+        foreach ($candidates as $candidate) {
+            // Vérifier si le candidat est déjà assigné à un test administratif
+            $existingTest = PresentielTest::where('candidate_id', $candidate->id)
+                ->where('test_type', 'administrative')
+                ->first();
+                
+            if ($existingTest) {
+                continue; // Candidat déjà assigné
+            }
+            
+            // Trouver le staff avec le moins de tests assignés
+            $staffMember = $adminStaff->sortBy(function ($staff) {
+                return $staff->presentielTests()
+                    ->where('test_type', 'administrative')
+                    ->where('date', '>=', now())
+                    ->count();
+            })->first();
+            
+            // Trouver une plage horaire disponible
+            $dateTime = $this->findAvailableTimeSlot($staffMember, 15); // 15 minutes pour un test administratif
+            
+            if (!$dateTime) {
+                $results['not_assigned'][] = [
+                    'candidate' => $candidate,
+                    'reason' => 'Pas de créneau disponible pour le test administratif'
+                ];
+                continue;
+            }
+            
+            // Créer le test présentiel
+            $test = PresentielTest::create([
+                'candidate_id' => $candidate->id,
+                'staff_id' => $staffMember->id,
+                'date' => $dateTime,
+                'location' => 'Bureau Administratif',
+                'test_type' => 'administrative',
+                'status' => 'scheduled'
+            ]);
+            
+            // Envoyer une notification
+            $this->sendTestNotification($candidate, $staffMember, $test);
+            
+            $results['assigned'][] = [
+                'candidate' => $candidate,
+                'test' => $test,
+                'type' => 'administrative'
+            ];
+        }
+    }
+ 
