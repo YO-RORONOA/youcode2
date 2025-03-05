@@ -320,3 +320,165 @@ class TestAssignmentService
         return $sessions;
     }
     
+    /**
+     * Find an available time slot for a staff member.
+     */
+    private function findAvailableTimeSlot(Staff $staff, int $durationMinutes)
+    {
+        $startDate = now()->addDays(1);
+        $endDate = now()->addDays(14);
+        
+        // Vérifier les disponibilités du staff
+        $availabilities = $staff->availabilities()
+            ->whereBetween('date', [$startDate, $endDate])
+            ->where('is_available', true)
+            ->get();
+            
+        if ($availabilities->count() === 0) {
+            // Si aucune disponibilité n'est enregistrée, supposer que le staff est disponible
+            // pendant les heures de bureau habituelles (9h-17h)
+            for ($i = 0; $i < 10; $i++) {
+                $date = $startDate->copy()->addDays($i);
+                
+                // Ne pas planifier pendant les week-ends
+                if ($date->isWeekend()) {
+                    continue;
+                }
+                
+                // Heures de travail: 9h-12h, 14h-17h
+                $workHours = [
+                    ['start' => 9, 'end' => 12],
+                    ['start' => 14, 'end' => 17]
+                ];
+                
+                foreach ($workHours as $period) {
+                    // Vérifier chaque créneau d'une heure
+                    for ($hour = $period['start']; $hour < $period['end']; $hour++) {
+                        // Pour chaque heure, vérifier les créneaux de 15 minutes
+                        for ($minute = 0; $minute < 60; $minute += 15) {
+                            $proposedDateTime = $date->copy()->setHour($hour)->setMinute($minute);
+                            
+                            // Vérifier si ce créneau est disponible
+                            if ($this->isTimeSlotAvailable($staff, $proposedDateTime, $durationMinutes)) {
+                                return $proposedDateTime;
+                            }
+                        }
+                    }
+                }
+            }
+        } else {
+            // Utiliser les disponibilités enregistrées
+            foreach ($availabilities as $availability) {
+                $date = $availability->date;
+                
+                if ($availability->time_slot === 'morning' || $availability->time_slot === 'full_day') {
+                    // Heures du matin: 9h-12h
+                    for ($hour = 9; $hour < 12; $hour++) {
+                        for ($minute = 0; $minute < 60; $minute += 15) {
+                            $proposedDateTime = $date->copy()->setHour($hour)->setMinute($minute);
+                            
+                            if ($this->isTimeSlotAvailable($staff, $proposedDateTime, $durationMinutes)) {
+                                return $proposedDateTime;
+                            }
+                        }
+                    }
+                }
+                
+                if ($availability->time_slot === 'afternoon' || $availability->time_slot === 'full_day') {
+                    // Heures de l'après-midi: 14h-17h
+                    for ($hour = 14; $hour < 17; $hour++) {
+                        for ($minute = 0; $minute < 60; $minute += 15) {
+                            $proposedDateTime = $date->copy()->setHour($hour)->setMinute($minute);
+                            
+                            if ($this->isTimeSlotAvailable($staff, $proposedDateTime, $durationMinutes)) {
+                                return $proposedDateTime;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        return null; // Aucun créneau disponible
+    }
+    
+    /**
+     * Check if a time slot is available for a staff member.
+     */
+    private function isTimeSlotAvailable(Staff $staff, $dateTime, int $durationMinutes)
+    {
+        // Vérifier si le staff a déjà un test planifié qui chevauche ce créneau
+        $startDateTime = $dateTime->copy();
+        $endDateTime = $dateTime->copy()->addMinutes($durationMinutes);
+        
+        $overlappingTests = PresentielTest::where('staff_id', $staff->id)
+            ->where(function ($query) use ($startDateTime, $endDateTime) {
+                $query->where(function ($q) use ($startDateTime, $endDateTime) {
+                    // Test commence pendant notre créneau
+                    $q->where('date', '>=', $startDateTime)
+                      ->where('date', '<', $endDateTime);
+                })->orWhere(function ($q) use ($startDateTime, $endDateTime) {
+                    // Test se termine pendant notre créneau
+                    $q->where('date', '<=', $startDateTime)
+                      ->where(DB::raw("DATE_ADD(date, INTERVAL test_duration MINUTE)"), '>', $startDateTime);
+                });
+            })
+            ->count();
+            
+        return $overlappingTests === 0;
+    }
+    
+    /**
+     * Send a notification about the test assignment.
+     */
+    private function sendTestNotification(Candidate $candidate, Staff $staffMember, PresentielTest $test)
+    {
+        // Notifier le candidat
+        $candidate->user->notifications()->create([
+            'type' => 'test_scheduled',
+            'content' => 'Un test ' . $this->getTestTypeName($test->test_type) . ' a été programmé pour vous le ' . 
+                         $test->date->format('d/m/Y à H:i') . ' à ' . $test->location,
+            'data' => [
+                'test_id' => $test->id,
+                'test_type' => $test->test_type,
+                'date' => $test->date->format('Y-m-d H:i:s'),
+                'location' => $test->location
+            ],
+            'is_read' => false
+        ]);
+        
+        // Notifier le staff
+        $staffMember->user->notifications()->create([
+            'type' => 'test_assigned',
+            'content' => 'Vous avez été assigné à un test ' . $this->getTestTypeName($test->test_type) . 
+                         ' avec ' . $candidate->user->name . ' le ' . 
+                         $test->date->format('d/m/Y à H:i') . ' à ' . $test->location,
+            'data' => [
+                'test_id' => $test->id,
+                'test_type' => $test->test_type,
+                'candidate_id' => $candidate->id,
+                'candidate_name' => $candidate->user->name,
+                'date' => $test->date->format('Y-m-d H:i:s'),
+                'location' => $test->location
+            ],
+            'is_read' => false
+        ]);
+    }
+    
+    /**
+     * Get a human-readable name for the test type.
+     */
+    private function getTestTypeName($testType)
+    {
+        switch ($testType) {
+            case 'cme':
+                return 'CME';
+            case 'technical':
+                return 'technique';
+            case 'administrative':
+                return 'administratif';
+            default:
+                return $testType;
+        }
+    }
+}
